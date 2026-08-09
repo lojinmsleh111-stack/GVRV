@@ -21,15 +21,16 @@ const {
   handleTicketButtonActions
 } = require('./tickets/ticketHandler');
 
-const ADMIN_ROLE_ID = '1534937247315398797';
+const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID || '1534937247315398797';
 
-// Express Server
+// 1. Express Server لإبقاء البوت حياً على Render
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => res.send('🤖 البوت يعمل بنجاح ومربوط بـ Render!'));
 app.listen(PORT, () => console.log(`🌐 Express running on port: ${PORT}`));
 
+// 2. إعداد كائن البوت مع الصلاحيات والـ Partials اللازمة للـ DM
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -41,7 +42,7 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message]
 });
 
-// تسجيل أوامر الشلاش
+// 3. تسجيل أوامر الشلاش
 client.once('ready', async () => {
   console.log(`✅ تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
 
@@ -58,7 +59,7 @@ client.once('ready', async () => {
   }
 });
 
-// أوامر التسطيب (محصورة بالإدارة)
+// 4. أوامر التسطيب (محصورة بالإدارة)
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.member || !message.member.roles.cache.has(ADMIN_ROLE_ID)) return;
 
@@ -83,9 +84,10 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// معالجة التفاعلات
+// 5. معالجة التفاعلات (أزرار + شلاش + قوائم منسدلة)
 client.on('interactionCreate', async (interaction) => {
   try {
+    // أوامر الشلاش
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'تكت') {
         await handleTicketSlashCommands(interaction);
@@ -94,6 +96,7 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    // التفاعل مع الأزرار
     if (interaction.isButton()) {
       if (interaction.customId.startsWith('app_')) {
         await handleAppButton(interaction);
@@ -105,6 +108,13 @@ client.on('interactionCreate', async (interaction) => {
         await handleTicketButtonActions(interaction);
       }
     }
+
+    // التفاعل مع القوائم المنسدلة (الخاصة بالأسئلة)
+    if (interaction.isStringSelectMenu()) {
+      // تتم معالجة القوائم المنسدلة داخل awaitMessageComponent في appHandler.js
+      return;
+    }
+
   } catch (error) {
     console.error('❌ حدث خطأ أثناء التفاعل:', error);
   }
