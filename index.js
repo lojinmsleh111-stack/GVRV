@@ -123,3 +123,4 @@ client.on('interactionCreate', async (interaction) => {
 
 // تسجيل الدخول للبوت
 client.login(process.env.DISCORD_TOKEN);
+
