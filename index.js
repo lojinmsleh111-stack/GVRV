@@ -6,6 +6,7 @@ require('dotenv').config();
 const { 
   getSellerAppPanel, 
   getMiddlemanAppPanel, 
+  getAdminAppPanel,
   handleButton: handleAppButton, 
   handleAdminAction 
 } = require('./applications/appHandler');
@@ -57,7 +58,7 @@ client.once('ready', async () => {
   }
 });
 
-// أوامر التسطيب
+// أوامر التسطيب (محصورة بالإدارة)
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.member || !message.member.roles.cache.has(ADMIN_ROLE_ID)) return;
 
@@ -71,6 +72,11 @@ client.on('messageCreate', async (message) => {
     await message.channel.send(getMiddlemanAppPanel());
   }
 
+  if (message.content === '!setup-admin') {
+    await message.delete().catch(() => {});
+    await message.channel.send(getAdminAppPanel());
+  }
+
   if (message.content === '!setup-tickets') {
     await message.delete().catch(() => {});
     await message.channel.send(getTicketPanel());
@@ -80,7 +86,6 @@ client.on('messageCreate', async (message) => {
 // معالجة التفاعلات
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. معالجة أوامر الشلاش
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'تكت') {
         await handleTicketSlashCommands(interaction);
@@ -89,7 +94,6 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // 2. معالجة الأزرار
     if (interaction.isButton()) {
       if (interaction.customId.startsWith('app_')) {
         await handleAppButton(interaction);
