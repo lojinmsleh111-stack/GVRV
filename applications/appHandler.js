@@ -3,7 +3,9 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  EmbedBuilder 
+  EmbedBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder
 } = require('discord.js');
 const { evaluateApplication } = require('../services/groqService');
 
@@ -99,13 +101,34 @@ async function handleButton(interaction) {
     appType = 'إدارة';
     questions = [
       { text: 'اسمك:', type: 'text' },
-      { text: 'هل كنت إداري بسيرفر اخر؟', type: 'choice' },
+      { 
+        text: 'هل كنت إداري بسيرفر اخر؟', 
+        type: 'select',
+        options: [
+          { label: 'نعم', value: 'نعم', emoji: '✅' },
+          { label: 'لا', value: 'لا', emoji: '❌' }
+        ]
+      },
       { text: 'عمرك:', type: 'text' },
       { text: 'خبراتك الإدارية:', type: 'text' },
       { text: 'خبراتك البرمجيه:', type: 'text' },
       { text: 'سبب انضمامك إلى إدارة حراج:', type: 'text' },
-      { text: 'هل مستعد للحلف؟', type: 'choice' },
-      { text: 'هل لديك مايك للحلف؟', type: 'choice' }
+      { 
+        text: 'هل مستعد للحلف؟', 
+        type: 'select',
+        options: [
+          { label: 'نعم', value: 'نعم', emoji: '✅' },
+          { label: 'لا', value: 'لا', emoji: '❌' }
+        ]
+      },
+      { 
+        text: 'هل لديك مايك للحلف؟', 
+        type: 'select',
+        options: [
+          { label: 'نعم', value: 'نعم', emoji: '✅' },
+          { label: 'لا', value: 'لا', emoji: '❌' }
+        ]
+      }
     ];
   }
 
@@ -115,7 +138,7 @@ async function handleButton(interaction) {
 
     const startEmbed = new EmbedBuilder()
       .setTitle(`📝 بدء تقديم: [ ${appType} ]`)
-      .setDescription('سأقوم الآن بطرح الأسئلة عليك هنا بالخاص واحدة تلو الأخرى. يرجى الرد بالإجابة مباشرة.\n\n⏳ **لديك 10 دقائق (AFK) للإجابة على كل سؤال.**')
+      .setDescription('سأقوم الآن بطرح الأسئلة عليك هنا بالخاص واحدة تلو الأخرى. يرجى الرد بالإجابة مباشرة أو الاختيار من القائمة.\n\n⏳ **لديك 10 دقائق (AFK) للإجابة على كل سؤال.**')
       .setColor('#5865F2');
 
     await dmChannel.send({ embeds: [startEmbed] });
@@ -131,27 +154,36 @@ async function handleButton(interaction) {
 
     for (let i = 0; i < questions.length; i++) {
       const qData = questions[i];
-      const qEmbed = new EmbedBuilder()
-        .setTitle(`السؤال (${i + 1}/${questions.length})`)
-        .setDescription(`**${qData.text}**`)
-        .setColor('#FEE75C');
-
       let userAnswer = '';
 
-      if (qData.type === 'choice') {
-        const choiceRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('btn_yes').setLabel('نعم').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId('btn_no').setLabel('لا').setStyle(ButtonStyle.Danger)
-        );
+      if (qData.type === 'select') {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`select_q_${i}`)
+          .setPlaceholder('اختر إجابتك من القائمة...')
+          .addOptions(
+            qData.options.map(opt => 
+              new StringSelectMenuOptionBuilder()
+                .setLabel(opt.label)
+                .setValue(opt.value)
+                .setEmoji(opt.emoji)
+            )
+          );
 
-        const msg = await dmChannel.send({ embeds: [qEmbed], components: [choiceRow] });
+        const selectRow = new ActionRowBuilder().addComponents(selectMenu);
 
-        const btnInteraction = await msg.awaitMessageComponent({
-          filter: btn => btn.user.id === userId,
+        const qEmbed = new EmbedBuilder()
+          .setTitle(`السؤال (${i + 1}/${questions.length})`)
+          .setDescription(`**${qData.text}**\n\n👇 **يرجى اختيار الإجابة من القائمة المنسدلة أدناه:**`)
+          .setColor('#5865F2');
+
+        const msg = await dmChannel.send({ embeds: [qEmbed], components: [selectRow] });
+
+        const selectInteraction = await msg.awaitMessageComponent({
+          filter: inter => inter.user.id === userId && inter.customId === `select_q_${i}`,
           time: 600000
         }).catch(() => null);
 
-        if (!btnInteraction) {
+        if (!selectInteraction) {
           activeUsers.delete(userId);
           const timeoutEmbed = new EmbedBuilder()
             .setTitle('⏰ تم إلغاء التقديم (AFK)')
@@ -160,10 +192,22 @@ async function handleButton(interaction) {
           return await dmChannel.send({ embeds: [timeoutEmbed] });
         }
 
-        userAnswer = btnInteraction.customId === 'btn_yes' ? 'نعم' : 'لا';
-        await btnInteraction.update({ components: [] });
+        userAnswer = selectInteraction.values[0];
+
+        // تحديث الـ Embed بالخيارات المؤكدة
+        const answeredEmbed = new EmbedBuilder()
+          .setTitle(`السؤال (${i + 1}/${questions.length})`)
+          .setDescription(`**${qData.text}**\n\n✅ **إجابتك:** ${userAnswer}`)
+          .setColor('#57F287');
+
+        await selectInteraction.update({ embeds: [answeredEmbed], components: [] });
 
       } else {
+        const qEmbed = new EmbedBuilder()
+          .setTitle(`السؤال (${i + 1}/${questions.length})`)
+          .setDescription(`**${qData.text}**`)
+          .setColor('#FEE75C');
+
         await dmChannel.send({ embeds: [qEmbed] });
 
         const collected = await dmChannel.awaitMessages({
@@ -263,7 +307,6 @@ async function handleAdminAction(interaction) {
       value: `✅ تم **القبول** بواسطة الإداري: ${interaction.user}` 
     });
 
-    // إعطاء الرتبة المخصصة حسب نوع التقديم
     if (targetMember) {
       if (appType === 'بائع') {
         await targetMember.roles.add(SELLER_ROLE_ID).catch(err => console.error('تعذر إعطاء رتبة البائع:', err));
@@ -325,4 +368,4 @@ module.exports = {
   handleButton, 
   handleAdminAction 
 };
-      
+  
