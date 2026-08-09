@@ -7,6 +7,13 @@ const {
 } = require('discord.js');
 const { evaluateApplication } = require('../services/groqService');
 
+// الآيديات الخاصة بالرتب
+const ADMIN_ROLE_ID = '1534937247315398797';
+const SELLER_ROLE_ID = '1534952025953931418';
+
+// قائمة لتتبع المستخدمين الذين يملكون تقديم شغال حالياً
+const activeUsers = new Set();
+
 // 1. لوحة تقديم البائع (Embed)
 function getSellerAppPanel() {
   const row = new ActionRowBuilder().addComponents(
@@ -35,8 +42,20 @@ function getMiddlemanAppPanel() {
   return { embeds: [embed], components: [row] };
 }
 
-// معالجة الضغط على الأزرار وبدء الأسئلة بالخاص
+// معالجة الضغط على أزرار التقديم وبدء الأسئلة بالخاص
 async function handleButton(interaction) {
+  const userId = interaction.user.id;
+
+  // 1. الحماية: التأكد من أن الشخص لا يملك تقديم شغال حالياً
+  if (activeUsers.has(userId)) {
+    const alreadyActiveEmbed = new EmbedBuilder()
+      .setTitle('⚠️ لديك تقديم نشط بالفعل')
+      .setDescription('لديك تقديم قيد الإجراء حالياً في الرسائل الخاصة! يرجى إكماله أو انتظاره حتى يلغى تلقائياً لتتمكن من تقديم طلب جديد.')
+      .setColor('#ED4245');
+
+    return await interaction.reply({ embeds: [alreadyActiveEmbed], ephemeral: true });
+  }
+
   let appType = '';
   let questions = [];
 
@@ -66,9 +85,12 @@ async function handleButton(interaction) {
   try {
     const dmChannel = await interaction.user.createDM();
     
+    // إضافة المستخدم لقائمة التقديم النشط
+    activeUsers.add(userId);
+
     const startEmbed = new EmbedBuilder()
       .setTitle(`📝 بدء تقديم: [ ${appType} ]`)
-      .setDescription('سأقوم الآن بطرح الأسئلة عليك هنا بالخاص واحدة تلو الأخرى. يرجى الرد بالإجابة مباشرة.\n\n⏳ **لديك 5 دقائق للإجابة على كل سؤال.**')
+      .setDescription('سأقوم الآن بطرح الأسئلة عليك هنا بالخاص واحدة تلو الأخرى. يرجى الرد بالإجابة مباشرة.\n\n⏳ **لديك 10 دقائق (AFK) للإجابة على كل سؤال قبل أن يتم إلغاء التقديم تلقائياً.**')
       .setColor('#5865F2');
 
     await dmChannel.send({ embeds: [startEmbed] });
@@ -90,17 +112,21 @@ async function handleButton(interaction) {
 
       await dmChannel.send({ embeds: [qEmbed] });
 
+      // 2. مهلة الـ AFK: 10 دقائق (600,000 ملي ثانية) لكل سؤال
       const collected = await dmChannel.awaitMessages({
-        filter: m => m.author.id === interaction.user.id,
+        filter: m => m.author.id === userId,
         max: 1,
-        time: 300000,
+        time: 600000, // 10 دقائق
         errors: ['time']
       }).catch(() => null);
 
+      // في حال عدم الرد (AFK)
       if (!collected) {
+        activeUsers.delete(userId); // إزالة الحظر عن الشخص لتقديم جديد لاحقاً
+
         const timeoutEmbed = new EmbedBuilder()
-          .setTitle('⏰ انتهت المهلة')
-          .setDescription('تم إلغاء التقديم لتأخرك في الرد.')
+          .setTitle('⏰ تم إلغاء التقديم (AFK)')
+          .setDescription('تم إلغاء تقديمك تلقائياً لعدم التفاعل لمدة 10 دقائق. يمكنك البدء من جديد عبر الضغط على الزر في السيرفر.')
           .setColor('#ED4245');
 
         return await dmChannel.send({ embeds: [timeoutEmbed] });
@@ -109,6 +135,9 @@ async function handleButton(interaction) {
       const userAnswer = collected.first().content;
       qaPairs.push({ question: questions[i], answer: userAnswer });
     }
+
+    // إزالة المستخدم من القائمة بعد إنهاء كافة الأسئلة
+    activeUsers.delete(userId);
 
     const finishEmbed = new EmbedBuilder()
       .setTitle('✅ تم إرسال تقديمك بنجاح')
@@ -149,6 +178,8 @@ async function handleButton(interaction) {
 
   } catch (error) {
     console.error(error);
+    activeUsers.delete(userId); // تنظيف القائمة في حال حدوث خطأ
+
     const failEmbed = new EmbedBuilder()
       .setTitle('❌ تعذر إرسال الرسالة')
       .setDescription('يرجى التأكد من فتح الرسائل الخاصة (DM) لسيرفر الديسكورد ثم حاوِل مرة أخرى.')
@@ -160,10 +191,20 @@ async function handleButton(interaction) {
   }
 }
 
-// معالجة القبول والرفض للتقديم مع الرسائل المحددة
+// معالجة القبول والرفض للتقديم محصورة للإدارة + إعطاء الرتبة
 async function handleAdminAction(interaction) {
+  if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
+    const noPermissionEmbed = new EmbedBuilder()
+      .setTitle('❌ غير مصرح')
+      .setDescription('عذراً، فقط أعضاء الإدارة يمتلكون صلاحية قبول أو رفض التقديمات.')
+      .setColor('#ED4245');
+
+    return await interaction.reply({ embeds: [noPermissionEmbed], ephemeral: true });
+  }
+
   const [action, targetUserId, appType] = interaction.customId.replace('admin_', '').split('_');
-  const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => null);
+  const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+  const targetUser = targetMember ? targetMember.user : await interaction.client.users.fetch(targetUserId).catch(() => null);
 
   const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
 
@@ -173,8 +214,12 @@ async function handleAdminAction(interaction) {
       value: `✅ تم **القبول** بواسطة الإداري: ${interaction.user}` 
     });
 
+    if (appType === 'بائع' && targetMember) {
+      await targetMember.roles.add(SELLER_ROLE_ID).catch(err => console.error('تعذر إعطاء رتبة البائع:', err));
+    }
+
     if (targetUser) {
-      let acceptText = `🎉 **__تم قبولك كـ ${appType} في حراج جرينفيل، لكن لاتنسى انك حلفت و أصبعك راح يشهد عليك في يوم القيامة__**`;
+      let acceptText = `🎉 **__تم قبولك كـ ${appType} في حراج جرينفيل, لكن لاتنسى انك حلفت و صبعك راح يشهد عليك في يوم القيامة__**`;
       
       const resultEmbed = new EmbedBuilder()
         .setTitle('🎉 تم قبول تقديمك!')
@@ -192,7 +237,7 @@ async function handleAdminAction(interaction) {
     });
 
     if (targetUser) {
-      let rejectText = `❌ **__نعتذر لعدم قبولك فحال تود الانضمام الينا عيد التقديم__**`;
+      let rejectText = `❌ **__نـعتـذر لعـدم قبـولـك فحال تود الانضمام الينا عيد التقديم__**`;
 
       const resultEmbed = new EmbedBuilder()
         .setTitle('❌ تم رفض تقديمك')
@@ -211,4 +256,4 @@ module.exports = {
   handleButton, 
   handleAdminAction 
 };
-          
+                             
