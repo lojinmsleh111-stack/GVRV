@@ -1,15 +1,12 @@
 // index.js
-const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const express = require('express');
 require('dotenv').config();
 
-// استدعاء موديولات التقديمات والتكتات
 const { 
-  getStaffAppPanel, 
   getSellerAppPanel, 
   getMiddlemanAppPanel, 
   handleButton: handleAppButton, 
-  handleModalSubmit, 
   handleAdminAction 
 } = require('./applications/appHandler');
 
@@ -19,7 +16,10 @@ const {
   handleTicketClose 
 } = require('./tickets/ticketHandler');
 
-// --- إعداد خادم Express لبقاء البوت يعمل على Render ---
+// آيدي رتبة الإدارة المصرح لها بإدارة التقديمات واللوحات
+const ADMIN_ROLE_ID = '1534937247315398797';
+
+// --- 1. إعداد خادم Express للحفاظ على عمل البوت على Render ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -30,97 +30,68 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🌐 خادم Express يعمل على المنفذ: ${PORT}`);
 });
-// --------------------------------------------------
+// -------------------------------------------------------------
 
-// إنشاء الكلاينت مع الصلاحيات المطلوبة
+// --- 2. إعداد وتشكيل عميل Discord ---
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages
   ],
   partials: [Partials.Channel, Partials.Message]
 });
 
-client.commands = new Collection();
-
-// عند تشغيل البوت بنجاح
 client.once('ready', () => {
   console.log(`✅ تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
-  console.log('🤖 جاهز لاستقبال التقديمات والتكتات...');
 });
 
-// --- أوامر تسطيب اللوحات في الرومات (للإدارة فقط) ---
+// --- 3. أوامر التسطيب (محصورة لرتبة الإدارة فقط) ---
 client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.member.permissions.has('Administrator')) return;
+  // تجاهل البوتات وإصدار الأوامر خارج السيرفرات أو بدون رتبة الإدارة
+  if (message.author.bot || !message.member || !message.member.roles.cache.has(ADMIN_ROLE_ID)) return;
 
-  // 1. تسطيب تقديم الإدارة في روم #تقديم-الإدارة
-  if (message.content === '!setup-staff') {
-    await message.delete().catch(() => {});
-    await message.channel.send(getStaffAppPanel());
-  }
-
-  // 2. تسطيب تقديم البائع في روم #تقديم-بائع
   if (message.content === '!setup-seller') {
     await message.delete().catch(() => {});
     await message.channel.send(getSellerAppPanel());
   }
 
-  // 3. تسطيب تقديم الوسيط في روم #تقديم-وسيط
   if (message.content === '!setup-mm') {
     await message.delete().catch(() => {});
     await message.channel.send(getMiddlemanAppPanel());
   }
 
-  // 4. تسطيب نظام التكتات في روم #الدعم-الفني
   if (message.content === '!setup-tickets') {
     await message.delete().catch(() => {});
     await message.channel.send(getTicketPanel());
   }
 });
 
-// --- معالج التفاعلات (Interactions Handler) ---
+// --- 4. معالجة التفاعلات والأزرار ---
 client.on('interactionCreate', async (interaction) => {
   try {
-    // 1. معالجة الأزرار (Buttons)
     if (interaction.isButton()) {
-      // أزرار فتح استمارات التقديم الثلاثة
+      // تفاعلات أزرار التقديمات
       if (interaction.customId.startsWith('app_')) {
         await handleAppButton(interaction);
       } 
-      // أزرار قبول / رفض التقديم الخاصة بالإدارة في روم اللوق
+      // تفاعلات أزرار قبول ورفض الإدارة
       else if (interaction.customId.startsWith('admin_')) {
         await handleAdminAction(interaction);
       } 
-      // زر فتح تكت جديد
+      // تفاعلات التكتات
       else if (interaction.customId === 'create_ticket') {
         await handleTicketCreate(interaction);
-      } 
-      // زر إغلاق التكت
-      else if (interaction.customId === 'close_ticket') {
+      } else if (interaction.customId === 'close_ticket') {
         await handleTicketClose(interaction);
       }
     }
-
-    // 2. معالجة الاستمارات (Modals) عند إرسال الإجابات
-    if (interaction.isModalSubmit()) {
-      if (interaction.customId.startsWith('modal_')) {
-        await handleModalSubmit(interaction);
-      }
-    }
-
   } catch (error) {
-    console.error('❌ حدث خطأ أثناء معالجة التفاعل:', error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ 
-        content: 'حدث خطأ غير متوقع أثناء تنفيذ الطلب.', 
-        ephemeral: true 
-      });
-    }
+    console.error('❌ حدث خطأ أثناء التفاعل:', error);
   }
 });
 
-// تسجيل الدخول للبوت
+// --- 5. تسجيل الدخول بالتوكين ---
 client.login(process.env.DISCORD_TOKEN);
-
