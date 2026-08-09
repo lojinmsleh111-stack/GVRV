@@ -1,5 +1,5 @@
 // index.js
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, REST, Routes } = require('discord.js');
 const express = require('express');
 require('dotenv').config();
 
@@ -11,28 +11,24 @@ const {
 } = require('./applications/appHandler');
 
 const { 
+  ticketSlashCommand,
+  callSlashCommand,
   getTicketPanel, 
   handleTicketCreate, 
-  handleTicketClose 
+  handleCallCommand,
+  handleTicketSlashCommands,
+  handleTicketButtonActions
 } = require('./tickets/ticketHandler');
 
-// آيدي رتبة الإدارة المصرح لها بإدارة التقديمات واللوحات
 const ADMIN_ROLE_ID = '1534937247315398797';
 
-// --- 1. إعداد خادم Express للحفاظ على عمل البوت على Render ---
+// Express Server
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-  res.send('🤖 البوت يعمل بنجاح ومربوط بـ Render!');
-});
+app.get('/', (req, res) => res.send('🤖 البوت يعمل بنجاح ومربوط بـ Render!'));
+app.listen(PORT, () => console.log(`🌐 Express running on port: ${PORT}`));
 
-app.listen(PORT, () => {
-  console.log(`🌐 خادم Express يعمل على المنفذ: ${PORT}`);
-});
-// -------------------------------------------------------------
-
-// --- 2. إعداد وتشكيل عميل Discord ---
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -44,13 +40,25 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message]
 });
 
-client.once('ready', () => {
+// تسجيل أوامر الشلاش
+client.once('ready', async () => {
   console.log(`✅ تم تسجيل الدخول بنجاح باسم: ${client.user.tag}`);
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  try {
+    console.log('⏳ جاري تسجيل أوامر الشلاش (Slash Commands)...');
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: [ticketSlashCommand.toJSON(), callSlashCommand.toJSON()] }
+    );
+    console.log('✅ تم تسجيل جميع أوامر الشلاش بنجاح!');
+  } catch (error) {
+    console.error('❌ خطأ في تسجيل أوامر الشلاش:', error);
+  }
 });
 
-// --- 3. أوامر التسطيب (محصورة لرتبة الإدارة فقط) ---
+// أوامر التسطيب
 client.on('messageCreate', async (message) => {
-  // تجاهل البوتات وإصدار الأوامر خارج السيرفرات أو بدون رتبة الإدارة
   if (message.author.bot || !message.member || !message.member.roles.cache.has(ADMIN_ROLE_ID)) return;
 
   if (message.content === '!setup-seller') {
@@ -69,23 +77,28 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// --- 4. معالجة التفاعلات والأزرار ---
+// معالجة التفاعلات
 client.on('interactionCreate', async (interaction) => {
   try {
+    // 1. معالجة أوامر الشلاش
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'تكت') {
+        await handleTicketSlashCommands(interaction);
+      } else if (interaction.commandName === 'نادي') {
+        await handleCallCommand(interaction);
+      }
+    }
+
+    // 2. معالجة الأزرار
     if (interaction.isButton()) {
-      // تفاعلات أزرار التقديمات
       if (interaction.customId.startsWith('app_')) {
         await handleAppButton(interaction);
-      } 
-      // تفاعلات أزرار قبول ورفض الإدارة
-      else if (interaction.customId.startsWith('admin_')) {
+      } else if (interaction.customId.startsWith('admin_')) {
         await handleAdminAction(interaction);
-      } 
-      // تفاعلات التكتات
-      else if (interaction.customId === 'create_ticket') {
+      } else if (interaction.customId === 'create_ticket') {
         await handleTicketCreate(interaction);
-      } else if (interaction.customId === 'close_ticket') {
-        await handleTicketClose(interaction);
+      } else if (interaction.customId === 'close_ticket' || interaction.customId === 'claim_ticket') {
+        await handleTicketButtonActions(interaction);
       }
     }
   } catch (error) {
@@ -93,5 +106,4 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// --- 5. تسجيل الدخول بالتوكين ---
 client.login(process.env.DISCORD_TOKEN);
