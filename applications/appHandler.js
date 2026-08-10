@@ -64,10 +64,19 @@ async function handleButton(interaction) {
   
   try {
     const dmChannel = await interaction.user.createDM();
+
+    // رسالة الترحيب الأولى في الخاص مع الصورة
+    const startEmbed = new EmbedBuilder()
+      .setTitle('📝 بدء عملية التقديم')
+      .setDescription(`مرحباً بك! تم بدء تقديمك على **${appType.toUpperCase()}**. الرجاء الإجابة على الأسئلة القادمة بعناية.\n\n⏱️ لديك 10 دقائق لكل سؤال.`)
+      .setColor('#2B2D31')
+      .setImage(PANEL_IMAGE);
+
+    await dmChannel.send({ embeds: [startEmbed] });
     
-    // إشعار نجاح فتح الخاص
+    // إشعار بالروم العام أن التقديم فتح بالخاص
     await interaction.reply({
-      content: '📩 تم إرسال أول سؤال لك في الرسائل الخاصة!',
+      content: '📩 تم إرسال معلومات التقديم لك في الرسائل الخاصة!',
       ephemeral: true
     });
 
@@ -126,11 +135,6 @@ async function startApplicationProcess(member, dmChannel, appType) {
       .setTitle(`📋 تقديم (${appType.toUpperCase()}) - السؤال [${i + 1}/${questions.length}]`)
       .setDescription(q.text)
       .setColor('#2B2D31');
-
-    // إرفاق الصورة العريضة بالرسالة الأولى في الخاص حصراً
-    if (i === 0) {
-      embed.setImage(PANEL_IMAGE);
-    }
 
     let msgData = { embeds: [embed] };
 
@@ -223,4 +227,3 @@ module.exports = {
   getAdminAppPanel,
   handleButton
 };
-          
