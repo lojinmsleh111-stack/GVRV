@@ -17,7 +17,6 @@ const PRE_ADMIN_ROLE_ID = process.env.PRE_ADMIN_ROLE_ID || '1534946895263305778'
 // تتبع المتقدمين النشطين
 const activeUsers = new Set();
 
-// 1. لوحة تقديم البائع
 function getSellerAppPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('app_seller').setLabel('تقديم على بائع / تاجر').setStyle(ButtonStyle.Success)
@@ -31,7 +30,6 @@ function getSellerAppPanel() {
   return { embeds: [embed], components: [row] };
 }
 
-// 2. لوحة تقديم الوسيط
 function getMiddlemanAppPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('app_middleman').setLabel('تقديم على وسيط (MM)').setStyle(ButtonStyle.Secondary)
@@ -45,7 +43,6 @@ function getMiddlemanAppPanel() {
   return { embeds: [embed], components: [row] };
 }
 
-// 3. لوحة تقديم الإدارة
 function getAdminAppPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('app_admin').setLabel('تقديم على طاقم الإدارة').setStyle(ButtonStyle.Danger)
@@ -59,7 +56,6 @@ function getAdminAppPanel() {
   return { embeds: [embed], components: [row] };
 }
 
-// معالجة الضغط على زر التقديم
 async function handleButton(interaction) {
   const userId = interaction.user.id;
 
@@ -232,38 +228,69 @@ async function handleButton(interaction) {
 
     activeUsers.delete(userId);
 
-    const finishEmbed = new EmbedBuilder()
-      .setTitle('✅ تم إرسال تقديمك بنجاح')
-      .setDescription('شكرًا لك! تم تسليم إجاباتك للإدارة نظرها.')
-      .setColor('#57F287');
+    // --- منطق القبول والرفض التلقائي 100% ---
+    let isAccepted = true;
 
-    await dmChannel.send({ embeds: [finishEmbed] });
+    if (appType === 'إدارة') {
+      const oathAns = qaPairs.find(p => p.question.includes('مستعد للحلف'))?.answer;
+      const micAns = qaPairs.find(p => p.question.includes('مايك للحلف'))?.answer;
+      if (oathAns === 'لا' || micAns === 'لا') {
+        isAccepted = false;
+      }
+    }
 
+    const member = await interaction.guild.members.fetch(userId).catch(() => null);
+
+    if (isAccepted) {
+      // إعطاء الرتبة تلقائياً
+      if (member) {
+        if (appType === 'بائع') await member.roles.add(SELLER_ROLE_ID).catch(() => {});
+        else if (appType === 'وسيط') await member.roles.add(MIDDLEMAN_ROLE_ID).catch(() => {});
+        else if (appType === 'إدارة') await member.roles.add(PRE_ADMIN_ROLE_ID).catch(() => {});
+      }
+
+      // إرسال رسالة القبول بالخاص
+      let acceptText = appType === 'إدارة'
+        ? '🎉 **نبارك لك على قبولك المبدئي بـ إدارة حراج الرجاء التوجه لـ الإداره العليا لاستكمال الإجراءات**'
+        : `🎉 **__تم قبولك كـ ${appType} في حراج جرينفيل, لكن لاتنسى انك حلفت و صبعك راح يشهد عليك في يوم القيامة__**`;
+
+      const acceptEmbed = new EmbedBuilder()
+        .setTitle('🎉 تم قبول تقديمك تلقائياً!')
+        .setDescription(acceptText)
+        .setColor('#57F287');
+
+      await dmChannel.send({ embeds: [acceptEmbed] });
+
+    } else {
+      // إرسال رسالة الرفض بالخاص
+      let rejectText = appType === 'إدارة'
+        ? '❌ **نعتذر لعدم قبولك**'
+        : `❌ **__نـعتـذر لعـدم قبـولـك فحال تود الانضمام الينا عيد التقديم__**`;
+
+      const rejectEmbed = new EmbedBuilder()
+        .setTitle('❌ تم رفض تقديمك')
+        .setDescription(rejectText)
+        .setColor('#ED4245');
+
+      await dmChannel.send({ embeds: [rejectEmbed] });
+    }
+
+    // إرسال اللوق للإدارة بالتوثيق والنتيجة الآلية
     const logEmbed = new EmbedBuilder()
-      .setTitle(`📥 لوق تقديم جديد: [ ${appType} ]`)
+      .setTitle(`📥 لوق تقديم جديد (معالجة تلقائية): [ ${appType} ]`)
       .addFields(
         { name: '👤 المتقدم:', value: `${interaction.user} (\`${interaction.user.id}\`)` },
-        ...qaPairs.map((item, idx) => ({ name: `س${idx + 1}: ${item.question}`, value: item.answer }))
+        ...qaPairs.map((item, idx) => ({ name: `س${idx + 1}: ${item.question}`, value: item.answer })),
+        { name: '🤖 القرار الآلي التلقائي:', value: isAccepted ? '✅ **تم القبول تلقائياً وتم إعطاء الرتبة**' : '❌ **تم الرفض تلقائياً**' }
       )
-      .setColor('#FEE75C')
+      .setColor(isAccepted ? '#57F287' : '#ED4245')
       .setTimestamp();
-
-    const adminControlButtons = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`admin_accept_${interaction.user.id}_${appType}`)
-        .setLabel('✅ قبول')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`admin_reject_${interaction.user.id}_${appType}`)
-        .setLabel('❌ رفض')
-        .setStyle(ButtonStyle.Danger)
-    );
 
     const logChannelId = process.env.APP_LOG_CHANNEL_ID;
     if (logChannelId) {
       const logChannel = interaction.guild.channels.cache.get(logChannelId);
       if (logChannel) {
-        await logChannel.send({ embeds: [logEmbed], components: [adminControlButtons] });
+        await logChannel.send({ embeds: [logEmbed] });
       }
     }
 
@@ -282,62 +309,8 @@ async function handleButton(interaction) {
   }
 }
 
-// معالجة القبول والرفض من الإدارة
-async function handleAdminAction(interaction) {
-  if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
-    return await interaction.reply({ content: '❌ غير مصرح لك باستخدام هذا الزر.', ephemeral: true });
-  }
-
-  const parts = interaction.customId.replace('admin_', '').split('_');
-  const action = parts[0];
-  const targetUserId = parts[1];
-  const appType = parts[2];
-
-  const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-  const targetUser = targetMember ? targetMember.user : await interaction.client.users.fetch(targetUserId).catch(() => null);
-
-  const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
-
-  if (action === 'accept') {
-    updatedEmbed.setColor('#57F287').addFields({ 
-      name: '📌 القرار النهائي:', 
-      value: `✅ تم **القبول** بواسطة الإداري: ${interaction.user}` 
-    });
-
-    if (targetMember) {
-      if (appType === 'بائع') await targetMember.roles.add(SELLER_ROLE_ID).catch(() => {});
-      else if (appType === 'وسيط') await targetMember.roles.add(MIDDLEMAN_ROLE_ID).catch(() => {});
-      else if (appType === 'إدارة') await targetMember.roles.add(PRE_ADMIN_ROLE_ID).catch(() => {});
-    }
-
-    if (targetUser) {
-      let acceptText = appType === 'إدارة' 
-        ? '🎉 **نبارك لك على قبولك المبدئي بـ إدارة حراج الرجاء التوجه لـ الإداره العليا لاستكمال الإجراءات**'
-        : `🎉 **__تم قبولك كـ ${appType} في حراج جرينفيل, لكن لاتنسى انك حلفت و صبعك راح يشهد عليك في يوم القيامة__**`;
-
-      const resultEmbed = new EmbedBuilder().setTitle('🎉 تم قبول تقديمك!').setDescription(acceptText).setColor('#57F287');
-      await targetUser.send({ embeds: [resultEmbed] }).catch(() => null);
-    }
-
-    await interaction.update({ embeds: [updatedEmbed], components: [] });
-
-  } else if (action === 'reject') {
-    updatedEmbed.setColor('#ED4245').addFields({ 
-      name: '📌 القرار النهائي:', 
-      value: `❌ تم **الرفض** بواسطة الإداري: ${interaction.user}` 
-    });
-
-    if (targetUser) {
-      let rejectText = appType === 'إدارة' 
-        ? '❌ **نعتذر لعدم قبولك**'
-        : `❌ **__نـعتـذر لعـدم قبـولـك فحال تود الانضمام الينا عيد التقديم__**`;
-
-      const resultEmbed = new EmbedBuilder().setTitle('❌ تم رفض تقديمك').setDescription(rejectText).setColor('#ED4245');
-      await targetUser.send({ embeds: [resultEmbed] }).catch(() => null);
-    }
-
-    await interaction.update({ embeds: [updatedEmbed], components: [] });
-  }
+function handleAdminAction() {
+  // لا توجد أزرار يدويّة في نظام المعالجة التلقائية 100%
 }
 
 module.exports = { 
@@ -347,3 +320,4 @@ module.exports = {
   handleButton, 
   handleAdminAction 
 };
+        
