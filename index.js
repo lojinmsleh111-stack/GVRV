@@ -1,5 +1,15 @@
 // index.js
-const { Client, GatewayIntentBits, Partials, REST, Routes } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials, 
+  REST, 
+  Routes, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  EmbedBuilder 
+} = require('discord.js');
 const express = require('express');
 require('dotenv').config();
 
@@ -7,8 +17,7 @@ const {
   getSellerAppPanel, 
   getMiddlemanAppPanel, 
   getAdminAppPanel,
-  handleButton: handleAppButton, 
-  handleAdminAction 
+  handleButton: handleAppButton
 } = require('./applications/appHandler');
 
 const { 
@@ -21,7 +30,9 @@ const {
   handleTicketButtonActions
 } = require('./tickets/ticketHandler');
 
+// الآيديات الأساسية
 const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID || '1534937247315398797';
+const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID || '1534960086022226020';
 
 // 1. Express Server لإبقاء البوت حياً على Render
 const app = express();
@@ -30,7 +41,7 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('🤖 البوت يعمل بنجاح ومربوط بـ Render!'));
 app.listen(PORT, () => console.log(`🌐 Express running on port: ${PORT}`));
 
-// 2. إعداد كائن البوت مع الصلاحيات والـ Partials اللازمة للـ DM
+// 2. إعداد كائن البوت مع الصلاحيات والـ Partials اللازمة
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -59,9 +70,33 @@ client.once('ready', async () => {
   }
 });
 
-// 4. أوامر التسطيب (محصورة بالإدارة)
+// 4. دالة لوحة التفعيل
+function getVerifyPanel() {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('verify_user')
+      .setLabel('تفعيل الحساب')
+      .setEmoji('✅')
+      .setStyle(ButtonStyle.Success)
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle('🔒 التفعيل الأمني - حراج جرينفيل')
+    .setDescription('مرحبا اضغط على الزر أدناه للحصول على رتبة عضو مفعل و رؤية باقي رومات السيرفر')
+    .setColor('#2F3136')
+    .setFooter({ text: 'حراج جرينفيل • نظام التفعيل الآلي' });
+
+  return { embeds: [embed], components: [row] };
+}
+
+// 5. أوامر التسطيب (محصورة بالإدارة)
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.member || !message.member.roles.cache.has(ADMIN_ROLE_ID)) return;
+
+  if (message.content === '!setup-verify') {
+    await message.delete().catch(() => {});
+    await message.channel.send(getVerifyPanel());
+  }
 
   if (message.content === '!setup-seller') {
     await message.delete().catch(() => {});
@@ -84,7 +119,7 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// 5. معالجة التفاعلات (أزرار + شلاش + قوائم منسدلة)
+// 6. معالجة التفاعلات (أزرار + شلاش + تفعيل)
 client.on('interactionCreate', async (interaction) => {
   try {
     // أوامر الشلاش
@@ -98,10 +133,42 @@ client.on('interactionCreate', async (interaction) => {
 
     // التفاعل مع الأزرار
     if (interaction.isButton()) {
+      // زر التفعيل
+      if (interaction.customId === 'verify_user') {
+        const member = interaction.member;
+
+        if (member.roles.cache.has(VERIFIED_ROLE_ID)) {
+          const alreadyVerifiedEmbed = new EmbedBuilder()
+            .setTitle('⚠️ أنت مفعل بالفعل!')
+            .setDescription('تم تفعيل حسابك سابقاً، يمكنك تصفح باقي الرومات مباشرة.')
+            .setColor('#FEE75C');
+
+          return await interaction.reply({ embeds: [alreadyVerifiedEmbed], ephemeral: true });
+        }
+
+        try {
+          await member.roles.add(VERIFIED_ROLE_ID);
+
+          const successEmbed = new EmbedBuilder()
+            .setTitle('🎉 تم التفعيل بنجاح!')
+            .setDescription('تم إعطاؤك رتبة عضو مفعل بنجاح، يمكنك الان رؤية باقي رومات السيرفر.')
+            .setColor('#57F287');
+
+          return await interaction.reply({ embeds: [successEmbed], ephemeral: true });
+        } catch (roleError) {
+          console.error('❌ خطأ في إسناد رتبة المفعل:', roleError);
+          const errorEmbed = new EmbedBuilder()
+            .setTitle('❌ حدث خطأ أثناء التفعيل')
+            .setDescription('تأكد أن رتبة البوت أعلى من رتبة المفعل في إعدادات السيرفر.')
+            .setColor('#ED4245');
+
+          return await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        }
+      }
+
+      // أزرار التقديمات والتذاكر
       if (interaction.customId.startsWith('app_')) {
         await handleAppButton(interaction);
-      } else if (interaction.customId.startsWith('admin_')) {
-        await handleAdminAction(interaction);
       } else if (interaction.customId === 'create_ticket') {
         await handleTicketCreate(interaction);
       } else if (interaction.customId === 'close_ticket' || interaction.customId === 'claim_ticket') {
@@ -109,9 +176,8 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // التفاعل مع القوائم المنسدلة (الخاصة بالأسئلة)
+    // التفاعل مع القوائم المنسدلة
     if (interaction.isStringSelectMenu()) {
-      // تتم معالجة القوائم المنسدلة داخل awaitMessageComponent في appHandler.js
       return;
     }
 
@@ -121,3 +187,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+  
