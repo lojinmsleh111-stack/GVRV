@@ -5,300 +5,175 @@ const {
   ButtonStyle, 
   EmbedBuilder, 
   PermissionFlagsBits, 
-  ChannelType,
-  SlashCommandBuilder
+  ChannelType 
 } = require('discord.js');
 
-const ADMIN_ROLE_ID = '1534937247315398797';
+// رابط الصورة الموحد
+const PANEL_IMAGE = 'https://cdn.discordapp.com/attachments/1423345110732640316/1536494515878240426/af8d2477ec06380f4fa6c48e188384ec-1-ezgif.com-webp-to-png-converter_1.webp?ex=6a7b9b87&is=6a7a4a07&hm=641cb345c5dd4e9a961781a446d677bcb7f8e0d7fd46c32d3eed4cb464030998&';
 
-// 1. بناء أوامر الشلاش (Slash Command Definition)
-const ticketSlashCommand = new SlashCommandBuilder()
-  .setName('تكت')
-  .setDescription('أوامر إدارة التذاكر والدعم الفني')
-  .addSubcommand(sub =>
-    sub.setName('إضافة')
-       .setDescription('إضافة عضو أو رتبة إلى التكت الحالية')
-       .addUserOption(opt => opt.setName('العضو').setDescription('العضو المراد إضافته').setRequired(true))
-  )
-  .addSubcommand(sub =>
-    sub.setName('إزالة')
-       .setDescription('إزالة عضو أو رتبة من التكت الحالية')
-       .addUserOption(opt => opt.setName('العضو').setDescription('العضو المراد إزالته').setRequired(true))
-  )
-  .addSubcommand(sub =>
-    sub.setName('تسمية')
-       .setDescription('تغيير اسم روم التكت')
-       .addStringOption(opt => opt.setName('الاسم_الجديد').setDescription('الاسم الجديد للروم').setRequired(true))
-  )
-  .addSubcommand(sub =>
-    sub.setName('مطالبة')
-       .setDescription('استلام التكت وتحديدك كمسؤول عنها')
-  )
-  .addSubcommand(sub =>
-    sub.setName('قفل')
-       .setDescription('قفل الكتابة في التكت على صاحب الطلب')
-  )
-  .addSubcommand(sub =>
-    sub.setName('فتح')
-       .setDescription('إعادة فتح الكتابة لصاحب التكت')
-  )
-  .addSubcommand(sub =>
-    sub.setName('إغلاق')
-       .setDescription('إغلاق التكت وحذفها')
-       .addStringOption(opt => opt.setName('السبب').setDescription('سبب إغلاق التكت').setRequired(false))
-  );
+// الآيديات من البيئة أو القيم الافتراضية
+const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || null;
+const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || process.env.APP_LOG_CHANNEL_ID;
+const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID || '1534937247315398797';
 
-// أمر الشلاش المستقل للمناداة: /نادي
-const callSlashCommand = new SlashCommandBuilder()
-  .setName('نادي')
-  .setDescription('إرسال تنبيه بالخاص للعضو لمناداته للتكت')
-  .addUserOption(opt => opt.setName('العضو').setDescription('العضو المراد مناداته بالخاص').setRequired(true));
-
-// 2. لوحة فتح التكت (Embed)
+/**
+ * إنشاء لوحة فتح التذاكر (Panel)
+ */
 function getTicketPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('create_ticket')
-      .setLabel('📩 فتح تكت')
-      .setStyle(ButtonStyle.Primary)
+      .setLabel('فتح تكت الدعم الفني')
+      .setEmoji('📩')
+      .setStyle(ButtonStyle.Primary) // زر أزرق
   );
 
   const embed = new EmbedBuilder()
-    .setTitle('🎫 نظام الدعم الفني والتذاكر')
-    .setDescription('إذا كان لديك استفسار أو مشكلة، اضغط على الزر أدناه لفتح تذكرة وسيتم التواصل معك من قبل الإدارة.')
-    .setColor('#5865F2');
+    .setTitle('📩 مركز الدعم الفني والمساعدة - حراج جرينفيل')
+    .setDescription('إذا كان لديك أي استفسار أو شكوى، إضغط على الزر أدناه لفتح تكت وتواصل مع فريق الدعم الفني مباشرة.')
+    .setColor('#5865F2')
+    .setImage(PANEL_IMAGE);
 
   return { embeds: [embed], components: [row] };
 }
 
-// 3. إنشاء روم التكت
-async function handleTicketCreate(interaction) {
-  const guild = interaction.guild;
-  const user = interaction.user;
+/**
+ * التعامل مع الأزرار الخاصة بنظام التذاكر (فتح / إغلاق)
+ */
+async function handleTicketButton(interaction) {
+  const { guild, user, customId, channel } = interaction;
 
-  const existingChannel = guild.channels.cache.find(
-    c => c.name === `ticket-${user.username.toLowerCase()}`
-  );
-
-  if (existingChannel) {
-    const existEmbed = new EmbedBuilder()
-      .setTitle('⚠️ لديك تكت مفتوح بالفعل')
-      .setDescription(`لديك تكت مفتوح حالياً في الروم: ${existingChannel}`)
-      .setColor('#ED4245');
-
-    return await interaction.reply({ embeds: [existEmbed], ephemeral: true });
-  }
-
-  try {
-    const ticketChannel = await guild.channels.create({
-      name: `ticket-${user.username}`,
-      type: ChannelType.GuildText,
-      permissionOverwrites: [
-        {
-          id: guild.id,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
-        {
-          id: user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-        },
-        {
-          id: ADMIN_ROLE_ID,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-        },
-      ],
-    });
-
-    const controlRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('claim_ticket').setLabel('🙋‍♂️ استلام التكت').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 إغلاق').setStyle(ButtonStyle.Danger)
+  // 1. زر إنشاء تكت جديد
+  if (customId === 'create_ticket') {
+    // التحقق مما إذا كان العضو يملك تكت مفتوحة بالفعل
+    const existingTicket = guild.channels.cache.find(
+      c => c.name === `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}` ||
+           c.topic === user.id
     );
 
-    const welcomeEmbed = new EmbedBuilder()
-      .setTitle(`🎫 أهلاً بك في التكت الخاص بك`)
-      .setDescription(`مرحباً ${user}، يرجى كتابة تفاصيل مشكلتك هنا.\n\n💡 **ملاحظة للإدارة:** يمكنكم استخدام الأمر \`/تكت\` للأوامر أو \`/نادي\` لمناداة عضو بالخاص.`)
-      .setColor('#57F287');
-
-    await ticketChannel.send({ embeds: [welcomeEmbed], components: [controlRow] });
-
-    const successEmbed = new EmbedBuilder()
-      .setTitle('✅ تم إنشاء التكت')
-      .setDescription(`تم فتح تكت جديد بنجاح: ${ticketChannel}`)
-      .setColor('#57F287');
-
-    await interaction.reply({ embeds: [successEmbed], ephemeral: true });
-
-  } catch (error) {
-    console.error('خطأ أثناء إنشاء التكت:', error);
-    await interaction.reply({ content: '❌ تعذر إنشاء التكت، يرجى التأكد من صلاحيات البوت.', ephemeral: true });
-  }
-}
-
-// 4. معالجة أمر المناداة (/نادي)
-async function handleCallCommand(interaction) {
-  if (!interaction.channel.name.startsWith('ticket-')) {
-    return await interaction.reply({ content: '❌ هذا الأمر مخصص فقط لرومات التكتات!', ephemeral: true });
-  }
-
-  if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
-    return await interaction.reply({ content: '❌ عذراً، هذا الأمر مخصص للإدارة فقط.', ephemeral: true });
-  }
-
-  const targetUser = interaction.options.getUser('العضو');
-
-  const dmEmbed = new EmbedBuilder()
-    .setTitle('🔔 لديك تنبيه جديد في التكت!')
-    .setDescription(`مرحباً ${targetUser}، يتم مناداتك حالياً في التكت الخاصة بك في سيرفر **${interaction.guild.name}**.\n\n🔗 **رابط الروم المباشر:** ${interaction.channel}`)
-    .setColor('#FEE75C')
-    .setTimestamp();
-
-  try {
-    await targetUser.send({ embeds: [dmEmbed] });
-
-    const successEmbed = new EmbedBuilder()
-      .setTitle('📩 تم إرسال المناداة')
-      .setDescription(`تم إرسال رسالة تنبيه بالخاص لـ ${targetUser} بنجاح.`)
-      .setColor('#57F287');
-
-    await interaction.reply({ embeds: [successEmbed] });
-  } catch (err) {
-    const failEmbed = new EmbedBuilder()
-      .setTitle('❌ تعذر الإرسال')
-      .setDescription(`تعذر إرسال تنبيه بالخاص لـ ${targetUser}، قد تكون خاصيته مغلقة (DM Closed).`)
-      .setColor('#ED4245');
-
-    await interaction.reply({ embeds: [failEmbed], ephemeral: true });
-  }
-}
-
-// 5. معالجة أوامر الشلاش الخاصّة بالـ (/تكت)
-async function handleTicketSlashCommands(interaction) {
-  if (!interaction.channel.name.startsWith('ticket-')) {
-    return await interaction.reply({ content: '❌ هذا الأمر مخصص فقط لرومات التكتات!', ephemeral: true });
-  }
-
-  if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
-    return await interaction.reply({ content: '❌ عذراً، هذا الأمر مخصص للإدارة فقط.', ephemeral: true });
-  }
-
-  const subcommand = interaction.options.getSubcommand();
-
-  if (subcommand === 'إضافة') {
-    const targetUser = interaction.options.getUser('العضو');
-    await interaction.channel.permissionOverwrites.edit(targetUser.id, {
-      ViewChannel: true,
-      SendMessages: true,
-      AttachFiles: true
-    });
-
-    const embed = new EmbedBuilder()
-      .setTitle('👤 إضافة عضو')
-      .setDescription(`تمت إضافة ${targetUser} إلى التكت بنجاح.`)
-      .setColor('#57F287');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'إزالة') {
-    const targetUser = interaction.options.getUser('العضو');
-    await interaction.channel.permissionOverwrites.delete(targetUser.id);
-
-    const embed = new EmbedBuilder()
-      .setTitle('👤 إزالة عضو')
-      .setDescription(`تمت إزالة ${targetUser} من التكت بنجاح.`)
-      .setColor('#ED4245');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'تسمية') {
-    const newName = interaction.options.getString('الاسم_الجديد');
-    await interaction.channel.setName(`ticket-${newName}`);
-
-    const embed = new EmbedBuilder()
-      .setTitle('✏️ تغيير اسم التكت')
-      .setDescription(`تم تغيير اسم التكت إلى: \`ticket-${newName}\``)
-      .setColor('#57F287');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'مطالبة') {
-    const embed = new EmbedBuilder()
-      .setTitle('🙋‍♂️ تم استلام التكت')
-      .setDescription(`تم استلام هذه التذكرة بواسطة الإداري: ${interaction.user}`)
-      .setColor('#FEE75C');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'قفل') {
-    await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: false });
-    
-    const embed = new EmbedBuilder()
-      .setTitle('🔒 تم قفل التكت')
-      .setDescription('تم إيقاف إمكانية الكتابة في التكت مؤقتاً.')
-      .setColor('#ED4245');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'فتح') {
-    await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: true });
-    
-    const embed = new EmbedBuilder()
-      .setTitle('🔓 تم فتح التكت')
-      .setDescription('تمت إعادة فتح إمكانية الكتابة في التكت.')
-      .setColor('#57F287');
-
-    await interaction.reply({ embeds: [embed] });
-  }
-  else if (subcommand === 'إغلاق') {
-    const reason = interaction.options.getString('السبب') || 'لا يوجد سبب محدد';
-
-    const closeEmbed = new EmbedBuilder()
-      .setTitle('🔒 إغلاق التكت')
-      .setDescription(`السبب: **${reason}**\nسيتم حذف الروم خلال 5 ثوانٍ...`)
-      .setColor('#ED4245');
-
-    await interaction.reply({ embeds: [closeEmbed] });
-
-    setTimeout(async () => {
-      await interaction.channel.delete().catch(() => {});
-    }, 5000);
-  }
-}
-
-// 6. معالجة الأزرار
-async function handleTicketButtonActions(interaction) {
-  if (interaction.customId === 'close_ticket') {
-    const closeEmbed = new EmbedBuilder()
-      .setTitle('🔒 إغلاق التكت')
-      .setDescription('سيتم حذف التكت خلال 5 ثوانٍ...')
-      .setColor('#ED4245');
-
-    await interaction.reply({ embeds: [closeEmbed] });
-
-    setTimeout(async () => {
-      await interaction.channel.delete().catch(() => {});
-    }, 5000);
-  } 
-  else if (interaction.customId === 'claim_ticket') {
-    if (!interaction.member.roles.cache.has(ADMIN_ROLE_ID)) {
-      return await interaction.reply({ content: '❌ هذا الزر مخصص للإدارة فقط.', ephemeral: true });
+    if (existingTicket) {
+      return await interaction.reply({
+        content: `⚠️ لديك تكت مفتوحة بالفعل في الروم: ${existingTicket}`,
+        ephemeral: true
+      });
     }
 
-    const claimEmbed = new EmbedBuilder()
-      .setTitle('🙋‍♂️ استلام التكت')
-      .setDescription(`تم استلام التكت بواسطة الإداري: ${interaction.user}`)
-      .setColor('#FEE75C');
+    await interaction.deferReply({ ephemeral: true });
 
-    await interaction.reply({ embeds: [claimEmbed] });
+    try {
+      // صلاحيات روم التكت
+      const permissionOverwrites = [
+        {
+          id: guild.id, // منع الجميع من رؤية الروم
+          deny: [PermissionFlagsBits.ViewChannel]
+        },
+        {
+          id: user.id, // إعطاء المتقدم صلاحية القراءة وإرسال الرسائل
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.ReadMessageHistory
+          ]
+        }
+      ];
+
+      // إعطاء الإدارة صلاحية إذا كانت الرتبة موجودة
+      if (ADMIN_ROLE_ID) {
+        permissionOverwrites.push({
+          id: ADMIN_ROLE_ID,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels
+          ]
+        });
+      }
+
+      // إنشاء الكاتيجوري أو الروم مباشرة
+      const ticketChannel = await guild.channels.create({
+        name: `ticket-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        type: ChannelType.GuildText,
+        parent: TICKET_CATEGORY_ID || undefined,
+        topic: user.id,
+        permissionOverwrites
+      });
+
+      // زر إغلاق التكت
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('close_ticket')
+          .setLabel('إغلاق التكت')
+          .setEmoji('🔒')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      const welcomeEmbed = new EmbedBuilder()
+        .setTitle(`📩 تكت دعم فني جديدة`)
+        .setDescription(`مرحباً بك ${user}! 👋\n\nيرجى كتابة تفاصيل استفسارك أو مشكلتك هنا وسيقوم فريق الدعم الفني بالرد عليك في أقرب وقت ممكن.\n\n🔒 **لإغلاق التكت، إضغط على الزر أدناه.**`)
+        .setColor('#5865F2')
+        .setImage(PANEL_IMAGE)
+        .setTimestamp();
+
+      await ticketChannel.send({
+        content: `${user} | <@&${ADMIN_ROLE_ID}>`,
+        embeds: [welcomeEmbed],
+        components: [closeRow]
+      });
+
+      await interaction.editReply({
+        content: `✅ تم إنشاء التكت بنجاح: ${ticketChannel}`
+      });
+
+    } catch (error) {
+      console.error('❌ خطأ أثناء إنشاء التكت:', error);
+      await interaction.editReply({
+        content: '❌ حدث خطأ أثناء إنشاء التكت، يرجى التأكد من صلاحيات البوت.'
+      });
+    }
+  }
+
+  // 2. زر إغلاق التكت
+  else if (customId === 'close_ticket') {
+    await interaction.reply({
+      content: '🔒 جاري إغلاق التكت وأرشفة المحادثة خلال 5 ثوانٍ...'
+    });
+
+    setTimeout(async () => {
+      try {
+        const ticketOwnerId = channel.topic;
+        const ticketOwner = ticketOwnerId ? await guild.members.fetch(ticketOwnerId).catch(() => null) : null;
+
+        // إرسال اللوق لروم اللوقات
+        if (TICKET_LOG_CHANNEL_ID) {
+          const logChannel = guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+          if (logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('🔒 تم إغلاق تكت')
+              .addFields(
+                { name: 'اسم الروم:', value: `\`${channel.name}\``, inline: true },
+                { name: 'صاحب التكت:', value: ticketOwner ? `${ticketOwner} (\`${ticketOwner.id}\`)` : 'غير معروف', inline: true },
+                { name: 'تم الإغلاق بواسطة:', value: `${user} (\`${user.id}\`)`, inline: true }
+              )
+              .setColor('#ED4245')
+              .setTimestamp();
+
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        }
+
+        // حذف روم التكت
+        await channel.delete();
+      } catch (err) {
+        console.error('❌ خطأ أثناء إغلاق التكت:', err);
+      }
+    }, 5000);
   }
 }
 
 module.exports = {
-  ticketSlashCommand,
-  callSlashCommand,
   getTicketPanel,
-  handleTicketCreate,
-  handleCallCommand,
-  handleTicketSlashCommands,
-  handleTicketButtonActions
+  handleTicketButton
 };
-                
