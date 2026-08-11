@@ -76,7 +76,7 @@ function getVerifyPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('verify_user')
-      .setLabel('تفعيل الحساب')
+      .setLabel('فعل نفسك')
       .setEmoji('✅')
       .setStyle(ButtonStyle.Success)
   );
@@ -149,7 +149,7 @@ client.on('interactionCreate', async (interaction) => {
           await member.roles.add(VERIFIED_ROLE_ID);
 
           const successEmbed = new EmbedBuilder()
-            .setTitle('🎉 تم التفعيل بنجاح!')
+            .setTitle('👾 تم التفعيل بنجاح!')
             .setDescription('تم إعطاؤك رتبة عضو مفعل بنجاح، يمكنك الان رؤية باقي رومات السيرفر.')
             .setColor('#57F287');
 
