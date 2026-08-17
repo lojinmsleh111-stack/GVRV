@@ -249,15 +249,24 @@ async function handleButton(interaction) {
     activeUsers.delete(userId);
 
     // --- منطق القبول والرفض التلقائي 100% ---
-    let isAccepted = true;
+    // --- قرار القبول والرفض بواسطة Groq ---
+let isAccepted = false;
 
-    if (appType === 'إدارة') {
-      const oathAns = qaPairs.find(p => p.question.includes('مستعد للحلف'))?.answer;
-      const micAns = qaPairs.find(p => p.question.includes('مايك للحلف'))?.answer;
-      if (oathAns === 'لا' || micAns === 'لا') {
-        isAccepted = false;
-      }
-    }
+try {
+  const aiResult = await evaluateApplication(appType, qaPairs);
+
+  const decisionMatch = aiResult.match(/القرار\s*:\s*(قبول|رفض)/);
+
+  if (decisionMatch) {
+    isAccepted = decisionMatch[1] === 'قبول';
+  } else {
+    console.error('❌ Groq لم يرجع قراراً صحيحاً:', aiResult);
+    isAccepted = false;
+  }
+} catch (error) {
+  console.error('❌ خطأ في تقييم Groq:', error);
+  isAccepted = false;
+}
 
     const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
