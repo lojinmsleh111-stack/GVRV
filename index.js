@@ -28,7 +28,7 @@ const {
   handleCallCommand,
   handleTicketSlashCommands,
   handleTicketButtonActions
-} = require('./tickets/ticketHandler');
+} = require('./tickets/tickethandler');
 
 // الآيديات الأساسية ورابط الصورة
 const ADMIN_ROLE_ID = process.env.ADMIN_ROLE_ID || '1534937247315398797';
