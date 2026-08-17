@@ -10,7 +10,6 @@ const {
   ButtonStyle, 
   EmbedBuilder 
 } = require('discord.js');
-const { evaluateApplication } = require('../services/groqService');
 const express = require('express');
 require('dotenv').config();
 
