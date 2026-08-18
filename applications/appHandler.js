@@ -49,7 +49,18 @@ function getMiddlemanAppPanel() {
 
   const embed = new EmbedBuilder()
     .setTitle('🤝 تقديم وسيط في حراج جرينفيل')
-    .setDescription('إضغط على الزر أدناه للبدء بالتقديم. سيتم إرسال الأسئلة لك في الرسائل الخاصة (DM).')
+    .setDescription('**__ 
+• يجب ان يكون عمرك فوق 14
+
+• يجب ان تكون لديك سمعه طيبة 
+
+• يجب ان وقبل انضممت للفريق الاداري 
+
+• يجب ان لايكون لديك سوابق 
+
+• الحلف سيكون على المصحف 
+
+__**')
     .setColor('#4F545C')
     .setImage(PANEL_IMAGE);
 
