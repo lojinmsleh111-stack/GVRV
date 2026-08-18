@@ -29,7 +29,7 @@ function getTicketPanel() {
   );
 
   const embed = new EmbedBuilder()
-    .setTitle('📩 مركز الدعم الفني والمساعدة - حراج جرينفيل')
+    .setTitle('📩 الدعم الفني - حراج جرينفيل')
     .setDescription('**__ من هنا ترفع تكت 
 
 • شكوى على سراق 
